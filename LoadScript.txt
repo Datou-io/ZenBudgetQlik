@@ -1,0 +1,807 @@
+﻿///$tab Main
+SET ThousandSep=',';
+SET DecimalSep='.';
+SET MoneyThousandSep=',';
+SET MoneyDecimalSep='.';
+SET MoneyFormat='$#,##0.00;($#,##0.00)';
+SET TimeFormat='hh:mm:ss TT';
+SET DateFormat='MM/DD/YYYY';
+SET TimestampFormat='MM/DD/YYYY h:mm:ss[.fff] TT';
+SET MonthNames='Jan;Feb;Mar;Apr;May;Jun;Jul;Aug;Sep;Oct;Nov;Dec';
+SET DayNames='Mon;Tue;Wed;Thu;Fri;Sat;Sun';
+
+///$tab Vars
+// General Variables
+Let vCurYear = Year(Yearstart( Today( ) ) );
+Let vCurYear10 = vCurYear + 10;
+Let vLastYear = Year(Yearstart( Today( )))-1;
+Let vPriorLastYear = vLastYear-1;
+Let vPrior2Year = vLastYear-2;
+Let vCompareYear = $(vLastYear);
+Let vPrior3year = $(vCurYear) - 3;
+Let vLast5Year = $(vCurYear) - 4;
+Let vLast10Year = $(vCurYear) - 9;
+Let vCurMonthCt = Date(Today(),'MM');
+Let vToday = Date(Today(),'MM/DD/YYYY'); 
+Let vCurMonthYear = Date(Today(),'MMM-YYYY');
+Let vYearStartMonth= Date(Yearstart( Today( ) ),'MMM-YYYY');
+Let vExpStartYear = 2012;
+
+// Control via Settings Tab
+//Set vDonationGoal = .10;
+//Set vSavingsGoal = .10;
+//Set vRetirementGoal = .14;
+//Set vInvestmentGoal = .10;
+
+// Interest Rate Calculator
+Set vAHCompoundGrowth = pow(1 + vAHInterest/vAHCompoundFreq,(vAHNumYears * vAHCompoundFreq));
+Set vAHCompoundAmount = vAHPrinciple * (pow(1 + (vAHInterest/vAHCompoundFreq),(vAHNumYears*vAHCompoundFreq)));
+Set vAHCompoundGrowthAmt = $(vAHCompoundAmount) - vAHPrinciple;
+Set vAHCompoundGrowthContrib = (vAHCompoundContributions * ((pow(1 + vAHInterest/vAHCompoundContributionsFreq, vAHCompoundContributionsFreq*vAHNumYears)-1) / (vAHInterest/vAHCompoundContributionsFreq)));
+Set vAHContribBase = vAHCompoundContributions * vAHCompoundContributionsFreq * vAHNumYears;
+Set vAHContribGrowthAmt = $(vAHCompoundGrowthContrib) - $(vAHContribBase);
+Set vAHCompoundGrowthTot = $(vAHCompoundAmount) + $(vAHCompoundGrowthContrib);
+Set vAHCompoundAmountWithdrawal = ((pow(1 + vAHInterest/vAHCompoundFreq,(vAHNumYears * vAHCompoundFreq)) -1) * (vAHWithdrawalAmt*vAHWithdrawalFreq) / vAHInterest);
+
+// Control Via Settings Tab
+//Set vAHPrinciple = 3700;
+//Set vAHInterest = .07;
+//Set vAHCompoundFreq = 1;
+//Set vAHNumYears = 10;
+//Set vAHCompoundContributions = 100;
+//Set vAHCompoundContributionsFreq = 12;
+//Set vAHWithdrawalAmt = 9000;
+//Set vAHWithdrawalFreq = 12;
+
+// Retirement Calculator
+Let vCurAge = Year(Today()) - 1983;
+Set vRetireAge = 60;
+Set vProjMortality = 90;
+Set vAvgYearlyExpenses = Num( Sum({<Type = {'Expense', 'Benefits'}>} amount) / (Year(Today())-2012) , '$#,##0.00');
+
+// Variable Toggles
+// Set TimeToggle to Month
+// Set vTimeToggle = 'Month';
+Set vBudgetToggle = 'Budget';
+///$tab Calendar
+QuartersMap:  
+MAPPING LOAD   
+rowno() as Month,  
+'Q' & Ceil (rowno()/3) as Quarter  
+AUTOGENERATE (12); 
+
+// **************************************************************
+// Generates Calendar off Data across all tables pulled
+
+TempFullCal:
+Load
+	Date
+FROM
+[Zen Budget DB.xls]
+(biff, embedded labels, table is Income$);
+
+Concatenate
+Load
+	Date
+FROM
+[Zen Budget DB.xls]
+(biff, embedded labels, table is Expenses$);
+
+Concatenate
+Load
+	Date
+FROM
+[Zen Budget DB.xls]
+(biff, embedded labels, table is Donations$);
+
+Temp:
+	Load
+		min(Date) as minDate,
+		max(Date) as maxDate
+	Resident TempFullCal;
+
+Let vMinDate = Num(Peek('minDate', 0, 'Temp'));  
+Let vMaxDate = Num(Peek('maxDate', 0, 'Temp'));  
+DROP Table Temp; 
+
+TempCal:  
+LOAD  
+    $(vMinDate) + Iterno()-1 As Num,  
+    Date($(vMinDate) + IterNo() - 1) as TempDate  
+    AutoGenerate 1 While $(vMinDate) + IterNo() -1 <= $(vMaxDate);  
+
+Calendar:
+Load 
+	TempDate as Date,
+    week(TempDate) As Week,  
+    Year(TempDate) As Year,  
+    Month(TempDate) As Month,  
+    Day(TempDate) As Day,  
+    YeartoDate(TempDate)*-1 as CurYTDFlag,  
+    YeartoDate(TempDate,-1)*-1 as LastYTDFlag,  
+    inyear(TempDate, Monthstart($(vMaxDate)),-1) as RC12,  
+    date(monthstart(TempDate), 'MMM-YYYY') as MonthYear,  
+    ApplyMap('QuartersMap', month(TempDate), Null()) as Quarter,  
+    Week(weekstart(TempDate)) & '-' & WeekYear(TempDate) as WeekYear,  
+    WeekDay(TempDate) as WeekDay  
+Resident TempCal
+Order By TempDate ASC;  
+Drop Table TempCal; 
+
+// Used when generating the calendar off min and max data in tables.
+Drop Table TempFullCal;
+
+
+///$tab Projection
+Let vBirthdate = '01/01/2019';
+Let vDeathdate = '12/31/2069';
+
+Temp:
+	Load * Inline
+		[
+		minDate, maxDate
+		$(vBirthdate), 	$(vDeathdate)
+		];
+
+
+// *********************************************************
+
+Let vMinDate = Num(Peek('minDate', 0, 'Temp'));  
+Let vMaxDate = Num(Peek('maxDate', 0, 'Temp'));  
+DROP Table Temp; 
+
+TempCal:  
+LOAD  
+    $(vMinDate) + Iterno()-1 As Num,  
+    Date($(vMinDate) + IterNo() - 1) as TempDate  
+    AutoGenerate 1 While $(vMinDate) + IterNo() -1 <= $(vMaxDate);  
+
+ProjCal:
+Load 
+//	TempDate as ProjDate,
+    Year(TempDate) As ProjYear,  
+//    Month(TempDate) As ProjMonth,  
+//    Day(TempDate) As ProjDay,  
+//    date(monthstart(TempDate), 'MMM-YYYY') as ProjMonthYear,  
+    ApplyMap('QuartersMap', month(TempDate), Null()) as ProjQuarter
+//    Week(weekstart(TempDate)) & '-' & WeekYear(TempDate) as ProjWeekYear,  
+//    WeekDay(TempDate) as ProjWeekDay  
+Resident TempCal
+Order By TempDate ASC;  
+Drop Table TempCal; 
+///$tab Exp
+// Benefits
+ExpensesPrep:
+CrossTable([Prep.Category], Prep.ExpAmount, 4)
+LOAD 
+	 Date as Prep.Date, 
+     Upper(Source) as Prep.Source, 
+     Individual as [Prep.SubCategory],
+     'Benefits' as Prep.Type, 
+     Num([Med FSA] ,'$#,###.00') as [MED FSA], 
+     Num(HSA ,'$#,###.00') as HSA, 
+     Num([Employer HSA],'$#,###.00') as [EMPLOYER HSA], 
+     Num([Health Insurance],'$#,###.00') as [HEALTH],
+     Num([LT Disability],'$#,###.00') as [LT DISABILITY], 
+     Num([ST Disability],'$#,###.00') as [ST DISABILITY], 
+     Num(Dental,'$#,###.00') as DENTAL
+FROM
+[Zen Budget DB.xls]
+(biff, embedded labels, table is Income$, filters(
+Remove(Col, Pos(Top, 10)),
+Remove(Col, Pos(Top, 9)),
+Remove(Col, Pos(Top, 8)),
+Remove(Col, Pos(Top, 7)),
+Remove(Col, Pos(Top, 6)),
+Remove(Col, Pos(Top, 5)),
+Remove(Col, Pos(Top, 4)),
+Remove(Col, Pos(Top, 14)),
+Remove(Col, Pos(Top, 13)),
+Remove(Col, Pos(Top, 12))
+));
+
+Expenses:
+NoConcatenate Load
+	Prep.Date as Date,
+	Prep.Source as Source,
+	Upper(Prep.Category) as Subcategory,
+	Upper(Prep.Type) as Category,
+	Prep.ExpAmount as ExpAmount,
+	'BENEFITS' as Type,
+	'NO' as [Work Expense]
+Resident ExpensesPrep
+Where Year(Prep.Date) >= '2012';
+Drop Table ExpensesPrep;
+
+//non-work Expenses
+Concatenate
+Load
+    Date,
+    Upper(Category) as Category, 
+    Upper([Sub-Category]) as [Subcategory], 
+    Upper(Vendor) as Source, 
+    Num(amount,'$#,##0.00') as ExpAmount,
+    if(Upper([work expense])='YES', 'YES', 'NO') as [Work Expense], 
+    'EXPENSES' as Type
+    , description as Notes
+FROM
+[Zen Budget DB.xls]
+(biff, embedded labels, table is Expenses$)
+
+Where Category <> 'Work'
+AND
+Upper([work expense]) <> 'YES';
+
+//work expenses
+//Concatenate
+//Load
+//    Date,
+//    Upper(Category) as Category, 
+//    Upper([Sub-Category]) as [Subcategory], 
+//    Upper(Vendor) as Source, 
+//    Num(amount,'$#,##0.00') as ExpAmount, 
+//    'BUSINESS' as Type
+//    , description as Notes   
+//    , if(Upper([work expense])='YES', 'YES', 'NO') as [Work Expense]
+//    , Upper([work expense subcategory]) as [Work Expense SubCat]
+//FROM
+//[Zen Budget DB.xls]
+//(biff, embedded labels, table is Expenses$)
+//
+//Where Category = 'Work'
+//OR
+//Upper([work expense]) = 'YES'
+//;
+
+
+///$tab WorkExp
+WorkExp:
+LOAD 
+	 Date, 
+     Upper(WorkCategory) as WorkCategory, 
+     Upper([WorkSub-Category]) as [WorkSub-Category], 
+     Upper(WorkVendor) as WorkVendor,  
+     WorkExpAmount, 
+     WorkDescription
+FROM
+[Zen Budget DB.xls]
+(biff, embedded labels, table is [Work Expense$]);
+
+///$tab Income
+Income:
+LOAD 
+	 Date, 
+     Upper(Source) as IncomeSource,
+     Individual, 
+     Num([Gross Pay],'$#,###.00') as GrossPay, 
+     Num([Bonus Pay],'$#,###.00') as BonusPay, 
+//     [Medicare Tax], 
+//     [Social Security Tax], 
+//     [Federal Income Tax], 
+//     [State Income Tax], 
+//     [401K], 
+//     [Med FSA], 
+//     HSA, 
+//     [Employer HSA], 
+//     [Health Insurance], 
+//     [LT Disability], 
+//     [ST Disability], 
+//     Dental, 
+//     Life, 
+//     Other, 
+//	   Num([Gross Pay]+[Bonus Pay]-[Medicare Tax]-[Social Security Tax]-[Federal Income Tax]-[State Income Tax],'$#,###.00') as PayLessTaxes, 
+//  	   Num(Num([Gross Pay],'$#,###.00')+Num([Bonus Pay],'$#,###.00')-Num([Medicare Tax],'$#,###.00')-Num([Social Security Tax],'$#,###.00')-Num([Federal Income Tax],'$#,###.00')-Num([State Income Tax],'$#,###.00'),'$#,###.00') as NetPay
+     Num([Net Pay],'$#,###.00') as NetPay, 
+     Notes as IncNotes
+FROM
+[Zen Budget DB.xls]
+(biff, embedded labels, table is Income$)
+
+Where Source <> 'NORTHWESTERN MUTUAL'
+	AND ([Gross Pay] > 0
+	OR [Bonus Pay] > 0)
+;
+
+Tax:
+CrossTable([TaxSource], TaxAmount, 1)
+LOAD 
+ 	 Date, 
+//     Upper(Source) as Source, 
+//	 RowNo() as IncomeEntryKey,
+//     Individual  as [Sub-Category],
+     Num([Medicare Tax],'$#,###.00') as [Medicare Tax], 
+     Num([Social Security Tax],'$#,###.00') as [Social Security Tax], 
+     Num([Federal Income Tax],'$#,###.00') as [Federal Income Tax], 
+     Num([State Income Tax],'$#,###.00') as [State Income Tax]
+FROM
+[Zen Budget DB.xls]
+(biff, embedded labels, table is Income$, filters(
+Remove(Col, Pos(Top, 5)),
+Remove(Col, Pos(Top, 4)),
+Remove(Col, Pos(Top, 13)),
+Remove(Col, Pos(Top, 12)),
+Remove(Col, Pos(Top, 11)),
+Remove(Col, Pos(Top, 10)),
+Remove(Col, Pos(Top, 9)),
+Remove(Col, Pos(Top, 8))
+));
+
+// 'Other' from Income
+Concatenate
+Load
+	Date,
+	'Other' as TaxSource,
+	Other as TaxAmount
+FROM
+[Zen Budget DB.xls]
+(biff, embedded labels, table is Income$);
+///$tab Donations
+// Used for adjusted amount
+Set vInterest = .08;
+
+
+Donations:
+LOAD 
+	 Date, 
+     Upper([Donation Recipient]) as DonationRecipient, 
+     Num([Donation Amount],'$#,##0.00') as DonAmount,
+     [Donation Amount]*pow((1+$(vInterest)),(Year(Today()) - Year(Date))) as AdjDonAmount,
+     Notes as DonationNotes
+FROM
+[Zen Budget DB.xls]
+(biff, embedded labels, table is Donations$);
+
+///$tab Bus Expenses
+Reimbursement:
+LOAD 
+	 Date, 
+     Vendor as ReimbursementSource, 
+     Description as ReimbursementDescription, 
+     [Requested Amount], 
+     [Reimbursement Amount], 
+     [Reimbursement Date]
+FROM
+[Zen Budget DB.xls]
+(biff, embedded labels, table is [Work Reimbursement$]);
+
+///$tab Investment
+RetirementInvestment:
+LOAD 
+	 Date, 
+	 'NORTHWESTERN MUTUAL' as InvSource,
+     Num(Life,'$#,###.00') as InvAmount,
+     'LIFE' as RetInvCat
+FROM
+[Zen Budget DB.xls]
+(biff, embedded labels, table is Income$)
+
+Where Source = 'NORTHWESTERN MUTUAL'
+	AND Life > 0;
+
+Concatenate
+LOAD 
+	 Date, 
+	 Upper(Source) as InvSource,
+     Num([401K],'$#,###.00') as InvAmount,
+     '401 K' as RetInvCat
+FROM
+[Zen Budget DB.xls]
+(biff, embedded labels, table is Income$)
+
+Where [401K] > 0
+;
+
+//Mortgage on the house
+Concatenate
+LOAD 
+	 Date, 
+     Upper(InvSource) as InvSource, 
+     InvAmount, 
+     Upper(RetInvCat) as RetInvCat, 
+     RetInvNotes
+FROM
+[Zen Budget DB.xls]
+(biff, embedded labels, table is Retirement$);
+
+///$tab Investment Value
+
+InvValue:
+LOAD //Date, 
+	 InvDateKey,
+     Upper(InvSource) as InvValSource,
+     Upper(InvType) as InvType, 
+     Upper(InvValueKey) as InvValueKey, 
+     InvValue
+FROM
+[Zen Budget DB.xls]
+(biff, embedded labels, table is RetirementValue$);
+
+Let vRecentInvDateKey = MAX(InvDateKey);
+///$tab Meas
+// Overview Measures
+
+// Completed
+// Spend. Retirement, Donations and Expenses.
+Set mSpendCurYear = Num( Sum({<Year={'$(vCurYear)'}>} ExpAmount) + Sum({<Year={'$(vCurYear)'}>} InvAmount) + Sum({<Year={'$(vCurYear)'}>} DonAmount), '$#,##0.00');
+Set mSpendLastYear = Num( Sum({<Year={'$(vLastYear)'}>} ExpAmount) + Sum({<Year={'$(vLastYear)'}>} InvAmount) + Sum({<Year={'$(vLastYear)'}>} DonAmount), '$#,##0.00');
+Set mSpendLife = Num( Sum(ExpAmount) + Sum(InvAmount) + Sum(DonAmount), '#,##0.00');
+Set htSpend = 'All spending comprising expenses, benefits, business, investments, and donations.';
+Set mMonthlySpendCurYear = Num( $(mSpendCurYear) / Count({<Year={'$(vCurYear)'}>} Distinct MonthYear) , '$#,##0.00');
+Set mMonthlySpendLastYear = Num( $(mSpendLastYear) / Count({<Year={'$(vLastYear)'}>} Distinct MonthYear) , '$#,##0.00');
+Set mMonthlySpendLife = Num( $(mSpendLife) / Count(Distinct MonthYear) , '$#,##0.00');
+Set htMonthSpend = 'Average monthly spending comprising expenses, benefits, business, investments, and donations.';
+
+// Expenses Only
+Set mExpensesCurYear = Num( Sum( {<Year = {'$(vCurYear)'}>} ExpAmount) , '$#,##0.00');
+Set mExpensesLastYear = Num( Sum( {<Year= {'$(vLastYear)'}>} ExpAmount) ,'$#,##0.00');
+Set mExpensesPriorLastYear = Num( Sum( {<Year= {'$(vPriorLastYear)'}>} ExpAmount) ,'$#,##0.00');
+Set mExpensesPrior2Year = Num( Sum( {<Year= {'$(vPrior2Year)'}>} ExpAmount) ,'$#,##0.00');
+Set mExpensesPrior3YearAvg = Num((Sum( {<Year={'>=$(vPrior3year)<$(vCurYear)'}>} ExpAmount) / 3),'$#,##0.00');
+Set mExpensesLife = Num( Sum(ExpAmount), '$#,#00.00');
+Set htExpenses = 'The total out of pocket expenditures comprising expenses and benefits.';
+//Set mMonthlyExpensesCurYear = Num( $(mExpensesCurYear) / Count({<Year={'$(vCurYear)'}>} Distinct MonthYear) , '$#,##0.00');
+Set mMonthlyExpensesCurYear = Num( $(mExpensesCurYear) / Month(Today()) , '$#,##0.00');
+//Set mMonthlyExpensesLastYear = Num( $(mExpensesLastYear) / Count({<Year={'$(vLastYear)'}>}Distinct MonthYear) , '$#,##0.00');
+Set mMonthlyExpensesLastYear = Num( $(mExpensesLastYear) / 12 , '$#,##0.00');
+//Set mMonthlyExpensesPriorLastYear = Num( $(mExpensesPriorLastYear) / Count({<Year={'$(vPriorLastYear)'}>}Distinct MonthYear) , '$#,##0.00');
+Set mMonthlyExpensesPriorLastYear = Num( $(mExpensesPriorLastYear) / 12 , '$#,##0.00');
+//Set mMonthlyExpensesPrior2Year = Num( $(mExpensesPrior2Year) / Count({<Year={'$(vPrior2Year)'}>}Distinct MonthYear) , '$#,##0.00');
+Set mMonthlyExpensesPrior2Year = Num( $(mExpensesPrior2Year) / 12 , '$#,##0.00');
+Set mMonthlyExpensesPrior3YearAvg = Num((Sum({<Year={'>=$(vPrior3year)<$(vCurYear)'}>} ExpAmount) / 36),'$#,##0.00');
+Set mMonthlyExpensesLife = Num( $(mExpensesLife) / Count(Distinct MonthYear), '$#,##0.00');
+Set htMonthExpense = 'The Average monthly out of pocket expenditures comprising expenses and benefits.';
+
+// Income
+// These take out Gifts from Gross Income 
+Set mIncomeCurYear = Num( Sum( {<Year = {'$(vCurYear)'}, IncomeSource-={'GIFT'}>} GrossPay) + Sum( {<Year = {'$(vCurYear)'} >} BonusPay), '$#,##0.00');
+Set mIncomeLastYear = Num( Sum( {<Year = {'$(vLastYear)'}, IncomeSource-={'GIFT'}>} GrossPay) + Sum( {<Year = {'$(vLastYear)'} >} BonusPay), '$#,##0.00');
+//Set mIncomeCurYear = Num( Sum( {<Year = {'$(vCurYear)'}>} GrossPay) + Sum( {<Year = {'$(vCurYear)'} >} BonusPay), '$#,##0.00');
+//Set mIncomeLastYear = Num( Sum( {<Year = {'$(vLastYear)'}>} GrossPay) + Sum( {<Year = {'$(vLastYear)'} >} BonusPay), '$#,##0.00');
+Set mIncomeLife = Num( Sum(GrossPay) + Sum(BonusPay), '$#,##0.00');
+Set htIncome = 'The gross (pre-tax and pre-deduction) earnings.';
+Set mIncLessTaxesCurYear = Num( Sum( {<Year = {'$(vCurYear)'}, IncomeSource-={'GIFT'} >} GrossPay) + Sum( {<Year = {'$(vCurYear)'}, IncomeSource-={'GIFT'} >} BonusPay) - Sum( {<Year = {'$(vCurYear)'}, IncomeSource-={'GIFT'} >} TaxAmount), '$#,##0.00');
+Set mIncLessTaxesLastYear = Num( Sum( {<Year = {'$(vLastYear)'}, IncomeSource-={'GIFT'} >} GrossPay) + Sum( {<Year = {'$(vLastYear)'}, IncomeSource-={'GIFT'} >} BonusPay) - Sum( {<Year = {'$(vLastYear)'}, IncomeSource-={'GIFT'} >} TaxAmount), '$#,##0.00');
+Set htIncLessTaxes = 'The gross earnings (post-taxes)';
+// These take out Gifts from Net Income 
+Set mNetIncome = Num(Sum( {<IncomeSource-={'GIFT'}>} NetPay ), '$#,#00.00');
+Set mNetIncomeCurYear = Num( Sum( {<Year = {'$(vCurYear)'}, IncomeSource-={'GIFT'}>} NetPay ), '$#,#00.00');
+Set mNetIncomeLastYear = Num( Sum( {<Year = {'$(vLastYear)'}, IncomeSource-={'GIFT'}>} NetPay ), '$#,#00.00');
+//Set mNetIncomeCurYear = Num( Sum( {<Year = {'$(vCurYear)'}>} NetPay ), '$#,#00.00');
+//Set mNetIncomeLastYear = Num( Sum( {<Year = {'$(vLastYear)'}>} NetPay ), '$#,#00.00');
+Set mMonthlyNetIncomeCurYear =  Num( Sum( {<Year = {'$(vCurYear)'}, IncomeSource-={'GIFT'}>} NetPay ) / Count({<Year={'$(vCurYear)'}>} Distinct MonthYear), '$#,#00.00');
+Set mMonthlyNetIncomeLastYear =  Num( Sum( {<Year = {'$(vLastYear)'}, IncomeSource-={'GIFT'}>} NetPay ) / Count({<Year={'$(vLastYear)'}>} Distinct MonthYear), '$#,#00.00');
+//Set mMonthlyNetIncomeCurYear =  Num( Sum( {<Year = {'$(vCurYear)'}>} NetPay ) / Count({<Year={'$(vCurYear)'}>} Distinct MonthYear), '$#,#00.00');
+//Set mMonthlyNetIncomeLastYear =  Num( Sum( {<Year = {'$(vLastYear)'}>} NetPay ) / Count({<Year={'$(vLastYear)'}>} Distinct MonthYear), '$#,#00.00');
+
+// Donations
+Set mDonationCurYear = Num( Sum( {<Year = {'$(vCurYear)'}>} DonAmount), '$#,##0.00');
+Set mDonationPerCurYear = Num(Sum({<Year={'$(vCurYear)'}>} DonAmount) / $(mNetIncomeCurYear), '##.0%');
+Set mDonationLastYear = Num( Sum( {<Year = {'$(vLastYear)'}>} DonAmount), '$#,##0.00');
+Set mDonationPerLastYear = Num(Sum({<Year={'$(vLastYear)'}>} DonAmount) / $(mNetIncomeLastYear), '##.0%');
+Set mDonationLife = Num(Sum(DonAmount), '$#,##0.00');
+Set mDonationPerLife = Num($(mDonationLife) / $(mNetIncome),'##.0%' );
+Set mAdjDonationLife = Num(Sum(AdjDonAmount), '$#,##0.00');
+Set mAdjDonationPerLife = Num($(mAdjDonationLife) / $(mNetIncome),'##.0%' );
+
+Set mDonationTarget = Num($(vDonationGoal) * $(mNetIncomeCurYear),'$#,##0.00');
+
+// Investment / Retirement
+Set mRetirementLife = Num( Sum({<RetInvCat = {'401K', 'LIFE'}>} InvAmount), '$#,##0.00');
+Set mRetirementCurYear = Num( Sum({<RetInvCat = {'401K', 'LIFE'}, Year={'$(vCurYear)'}>} InvAmount), '$#,##0.00');
+Set mRetirementLastYear = Num( Sum({<RetInvCat = {'401K', 'LIFE'}, Year={'$(vLastYear)'}>} InvAmount), '$#,##0.00');
+Set mInvestmentLife = Num( Sum({<RetInvCat -= {'401K', 'LIFE'}>} InvAmount), '$#,##0.00');
+Set mInvestmentCurYear = Num( Sum({<RetInvCat -= {'401K', 'LIFE'}, Year={'$(vCurYear)'}>} InvAmount), '$#,##0.00');
+Set mInvestmentLastYear = Num( Sum({<RetInvCat -= {'401K', 'LIFE'}, Year={'$(vLastYear)'}>} InvAmount), '$#,##0.00');
+
+Set mInvestmentTarget = Num(($(vRetirementGoal) * $(mNetIncomeCurYear)) - Sum({<Year={'$(vCurYear)'}, InvSource-={'NORTHWESTERN MUTUAL'}>} InvAmount),'$#,##0.00');
+
+// Working
+Set mIncLessDeductionsCurYear = Num( Sum( {<Year = {'$(vCurYear)'} ,Type = {'Income'}>} amount) - Sum( {<Year = {'$(vCurYear)'} ,Type = {'Tax', 'Benefits', 'Retirement'}>} amount), '$#,##0.00');
+Set mIncLessDeductionsLastYear = Num( Sum( {<Year = {'$(vLastYear)'} ,Type = {'Income'}>} amount) - Sum( {<Year = {'$(vLastYear)'} ,Type = {'Tax', 'Benefits', 'Retirement'}>} amount), '$#,##0.00');
+Set mIncLessTaxesLifetime = Num( Sum( {<Type = {'Income'}>} amount) - Sum( {<Type = {'Tax'}>} amount), '$#,##0.00');
+Set mIncLessDeductionsLifetime = Num( Sum( {<Type = {'Income'}>} amount) - Sum( {<Type = {'Tax','Benefits','Retirement'}>} amount), '$#,##0.00');
+
+
+
+
+///$tab Budget
+// Budget
+TempBudg:
+// 2019 - 8500
+//Load * Inline
+//[
+//BudgetYear, Category, MonthlyBudget
+//2019, HOUSING, 1750
+//2019, EDUCATION, 800
+//2019, GROCERIES, 750
+//2019, EATING OUT, 750
+//2019, HEALTH, 700
+//2019, HOME, 600
+//2019, UTILITIES, 575
+//2019, BENEFITS, 500
+//2019, WORK, 475
+//2019, PERSONAL, 300
+//2019, TRAVEL, 275
+//2019, VEHICLE, 325
+//2019, HOUSEHOLD, 250
+//2019, ENTERTAINMENT, 100
+//2019, CLOTHING, 150
+//2019, HOBBY, 100
+//];
+
+// 2020 - 
+//Load * Inline
+//[
+//Category, MonthlyBudget
+//HOUSING, 1700
+//BENEFITS, 1275
+//EDUCATION, 1400
+//HEALTH, 575
+//UTILITIES, 325
+//
+//GROCERIES, 925
+//EATING OUT, 475
+//HOME, 450
+//HOUSEHOLD, 400
+//PERSONAL, 525
+//VEHICLE, 225
+//HOBBY, 125
+//ENTERTAINMENT, 100
+//CLOTHING, 100
+//VACATION, 25
+//];
+// -- Note -- Total Monthly Budget Target: $8,625
+// -- Note -- March 2020 Removed 'Work' as an expense category for separate budgeting
+// -- Note -- KELC = 1550/mo 
+
+
+//2021 -
+Load * Inline
+[
+Category, MonthlyBudget
+HOUSING, 1750
+EDUCATION, 2100
+HEALTH, 1125
+BENEFITS, 350
+UTILITIES, 325
+
+VEHICLE, 1350
+GROCERIES, 1000
+EATING OUT, 525
+HOUSEHOLD, 350
+HOME, 300
+VACATION, 125
+PERSONAL, 300
+ENTERTAINMENT, 200
+CLOTHING, 100
+HOBBY, 100
+];
+// -- Note -- Total Monthly Budget Target: $9,000
+// -- Note -- KELC = 2100/mo 
+// -- Note -- Personal = 3% buffer or discretionary
+
+Budget:
+NoConcatenate Load
+	Category,
+	Num(MonthlyBudget, '$#,##0.00') as MonthlyBudget,
+	Num(MonthlyBudget*12, '$#,##0.00') as AnnualBudget,
+	Num((MonthlyBudget*12)/52, '$#,##0.00') as WeeklyBudget
+Resident TempBudg;
+
+Join (Budget)
+Load
+	Category,
+	Num(Sum(ExpAmount), '$#,##0.00') as CurAnnExpense
+Resident Expenses
+Where Date >= YearStart(Today())
+Group By Category
+;
+
+Drop Table TempBudg;
+
+Temp:
+	Load
+	Sum(MonthlyBudget) as TotalMonthlyBudget
+Resident Budget;
+
+Let vBudget = Peek('TotalMonthlyBudget');
+
+Drop Table Temp;
+///$tab UI
+// Google Colors
+SET cBlk = RGB(0,0,0);
+SET cWht = RGB(255,255,255);
+
+SET cGry = RGB(51,51,51);
+SET cGry2 = RGB(77,77,77);
+SET cGry3 = RGB(102,102,102);
+SET cGry4 = RGB(128,128,128);
+SET cGry5 = RGB(153,153,153);
+SET cGry6 = RGB(178,178,178);
+SET cGry7 = RGB(204,204,204);
+SET cGry8 = RGB(230,230,230);
+SET cGry9 = RGB(242,242,242);
+
+SET cBlue = RGB(13,71,161);
+SET cBlue2 = RGB(21,101,192);
+SET cBlue3 = RGB(25,118,210);
+SET cBlue4 = RGB(30,136,229);
+SET cBlue5 = RGB(33,150,243);
+SET cBlue6 = RGB(66,165,245);
+SET cBlue7 = RGB(100,181,246);
+SET cBlue8 = RGB(144,202,249);
+SET cBlue9 = RGB(187,222,251);
+
+SET cGrn = RGB(27,94,32);
+SET cGrn2 = RGB(46,125,50);
+SET cGrn3 = RGB(56,142,60);
+SET cGrn4 = RGB(67,160,71);
+SET cGrn5 = RGB(76,175,80);
+SET cGrn6 = RGB(102,187,106);
+SET cGrn7 = RGB(129,199,132);
+SET cGrn8 = RGB(165,214,167);
+SET cGrn9 = RGB(200,230,201);
+
+SET cPurp = RGB(49,27,146);
+SET cPurp2 = RGB(69,39,160);
+SET cPurp3 = RGB(81,45,168);
+SET cPurp4 = RGB(94,53,177);
+SET cPurp5 = RGB(103,58,183);
+SET cPurp6 = RGB(126,87,194);
+SET cPurp7 = RGB(149,117,205);
+SET cPurp8 = RGB(179,157,219);
+SET cPurp9 = RGB(209,196,233);
+
+SET cRed = RGB(183,28,28);
+SET cRed2 = RGB(198,40,40);
+SET cRed3 = RGB(211,47,47);
+SET cRed4 = RGB(229,57,53);
+SET cRed5 = RGB(244,67,54);
+SET cRed6 = RGB(239,83,80);
+SET cRed7 = RGB(229,115,115);
+SET cRed8 = RGB(239,154,154);
+SET cRed9 = RGB(255,205,210);
+
+SET cYel = RGB(255,235,59);
+SET cYel2 = RGB(255,238,88);
+SET cYel3 = RGB(255,241,118);
+SET cYel4 = RGB(255,245,157);
+SET cYel5 = RGB(255,249,196);
+
+
+
+///$tab AdHoc Reporting
+/*  
+	This chunk of code generates a singular table for all of the Measures that you want in your Adhoc report (from the previous tab).
+	We can then use variables via the %Adhoc Measure variable to toggle which expression we use with a user friendly Adhoc calculation label.
+*/
+
+//[AdHoc Measures]:
+REPLACE Load * inline
+[%AdHoc Measure Label, %AdHoc Measure Variable
+$(vCurYear) Spend, mSpendCurYear
+$(vLastYear) Spend, mSpendLastYear 
+Spend (Lifetime), mSpendLife 
+$(vCurYear) Monthly Spend, mMonthlySpendCurYear 
+$(vLastYear) Monthly Spend, mMonthlySpendLastYear 
+Monthly Spend (Lifetime), mMonthlySpendLife 
+$(vCurYear) Expenses, mExpensesCurYear 
+$(vLastYear) Expenses, mExpensesLastYear 
+Expenses (Lifetime), mExpensesLife 
+$(vCurYear) Monthly Expenses, mMonthlyExpensesCurYear 
+$(vLastYear) Monthly Expenses, mMonthlyExpensesLastYear 
+Monthly Expenses (Lifetime), mMonthlyExpensesLife 
+$(vCurYear) Income, mIncomeCurYear 
+$(vLastYear) Income, mIncomeLastYear 
+Income (Lifetime), mIncomeLife
+Net Income (Lifetime), mNetIncome 
+
+
+
+
+];
+
+// This chunk of code now generates a table that has all the dimensions in your data model as values that can be selected.
+[AdHoc Dimensions]:
+REPLACE Load * inline
+[%AdHoc Dimension Field,%AdHoc Dimension Label];
+
+// We start by grabbing the number of tables which then tells the For loop how long to run.
+LET vNumTables = NoOfTables();
+// Now from here on out we start looping through each table to add it as an Adhoc Dimension 
+FOR vCnt = $(vNumTables) - 1 to 0 step -1
+	LET vTableName = TableName(vCnt);
+	if vTableName<>'AdHoc Dimensions' AND vTableName<>'AdHoc Measures' AND vTableName<>'dSelect1' then
+		For vFieldNdx = 1 to noOfFields(vTableName)
+			let vFieldName=FieldName(vFieldNdx,vTableName);
+
+// This chunk of code is for removing prefixes that you've used to make 'not available' in the general data model. The '%' prefix is used by QlikView to use for system fields.
+if left(vFieldName,1)<>'%' then
+			trace $(vTableName);
+			trace $(vFieldName);
+			let vLabel=replace('$(vFieldName)','.',' ');
+			trace $(vLabel);
+			Concatenate([AdHoc Dimensions])
+			ADD Load * inline
+			[%AdHoc Dimension Field,%AdHoc Dimension Label
+			'$(vFieldName)','$(vLabel)'
+			];
+end if
+		next
+	end if
+next	
+
+// Generate Dimension selection. We're going to do this once more to generate an adhoc query writer.
+[dSelect1]:
+REPLACE Load * inline
+[%dSel Field, %dSel Label];
+
+LET vNumTables = NoOfTables();
+
+FOR vCnt = $(vNumTables) - 1 to 0 step -1
+	LET vTableName = TableName(vCnt);
+	if vTableName<>'AdHoc Dimensions' AND vTableName<>'AdHoc Measures' AND vTableName<>'dSelect1' then
+		For vFieldNdx = 1 to noOfFields(vTableName)
+			let vFieldName=FieldName(vFieldNdx,vTableName);
+
+if left(vFieldName,1)<>'%' then
+			trace $(vTableName);
+			trace $(vFieldName);
+			let vLabel=replace('$(vFieldName)','.',' ');
+			trace $(vLabel);
+			Concatenate([dSelect1])
+			ADD Load * inline
+			[%dSel Field, %dSel Label
+			'$(vFieldName)','$(vLabel)'
+			];
+end if
+
+next
+	end if
+next		
+
+// Generate Dimension Selection
+[dSelect2]:
+REPLACE Load * inline
+[%dSel Field2, %dSel Label2];
+
+LET vNumTables = NoOfTables();
+
+FOR vCnt = $(vNumTables) - 1 to 0 step -1
+	LET vTableName = TableName(vCnt);
+	if vTableName<>'AdHoc Dimensions' AND vTableName<>'AdHoc Measures' AND vTableName<>'dSelect1' then
+		For vFieldNdx = 1 to noOfFields(vTableName)
+			let vFieldName=FieldName(vFieldNdx,vTableName);
+
+if left(vFieldName,1)<>'%' then
+			trace $(vTableName);
+			trace $(vFieldName);
+			let vLabel=replace('$(vFieldName)','.',' ');
+			trace $(vLabel);
+			Concatenate([dSelect2])
+			ADD Load * inline
+			[%dSel Field2, %dSel Label2
+			'$(vFieldName)','$(vLabel)'
+			];
+end if
+
+next
+	end if
+next		
+
+///$tab exit script
+exit script;
+///$tab Test
+Load * Inline [
+Role,percent
+Healthcare practitioners and technical occupations,53.7
+Office and administrative support,13.37
+Healthcare support,12.76
+Management occupations,3.71
+Building and grounds cleaning and maintenance,3.4
+Food prep and service,2.48
+Community and social services,2.4
+Business and financial operations,2.01
+Computer and mathematics,1.23
+Other,4.94
+];

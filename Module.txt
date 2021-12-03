@@ -1,0 +1,11 @@
+﻿Sub HideTabRow
+Set DocProp = ActiveDocument.GetProperties
+DocProp.ShowTabRow=false
+ActiveDocument.SetProperties DocProp
+End Sub
+
+Sub ShowTabRow
+Set DocProp = ActiveDocument.GetProperties
+DocProp.ShowTabRow=true
+ActiveDocument.SetProperties DocProp
+End Sub
